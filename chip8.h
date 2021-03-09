@@ -10,6 +10,11 @@ struct Chip8 {
 
     uint32_t pixels[64 * 32];
     bool draw;
+
+    bool keys[16];
+
+    uint8_t delay_timer;
+    uint8_t sound_timer;
 };
 
 static const uint8_t font[80] = {

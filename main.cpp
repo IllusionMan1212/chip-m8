@@ -1,12 +1,15 @@
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 
 #include "chip8.h"
 #include "version.h"
 
 #include <fstream>
-#include <iostream>
 
-void poll_events(SDL_Window *window, bool *running) {
+constexpr uint32_t ON_COLOR = 0xFFFFFFFF;
+constexpr uint32_t OFF_COLOR = 0x000000FF;
+
+void poll_events(SDL_Window *window, bool *running, Chip8 &chip8) {
     SDL_Event ev;
 
     while (SDL_PollEvent(&ev)) {
@@ -19,25 +22,128 @@ void poll_events(SDL_Window *window, bool *running) {
             case SDLK_ESCAPE:
                 *running = false;
                 break;
-            }
-            break;
-        case SDL_WINDOWEVENT:
-            switch (ev.window.event) {
-            case SDL_WINDOWEVENT_RESIZED:
+            case SDLK_1:
+                chip8.keys[0] = true;
+                break;
+            case SDLK_2:
+                chip8.keys[1] = true;
+                break;
+            case SDLK_3:
+                chip8.keys[2] = true;
+                break;
+            case SDLK_4:
+                chip8.keys[3] = true;
+                break;
+            case SDLK_q:
+                chip8.keys[4] = true;
+                break;
+            case SDLK_w:
+                chip8.keys[5] = true;
+                break;
+            case SDLK_e:
+                chip8.keys[6] = true;
+                break;
+            case SDLK_r:
+                chip8.keys[7] = true;
+                break;
+            case SDLK_a:
+                chip8.keys[8] = true;
+                break;
+            case SDLK_s:
+                chip8.keys[9] = true;
+                break;
+            case SDLK_d:
+                chip8.keys[0xA] = true;
+                break;
+            case SDLK_f:
+                chip8.keys[0xB] = true;
+                break;
+            case SDLK_z:
+                chip8.keys[0xC] = true;
+                break;
+            case SDLK_x:
+                chip8.keys[0xD] = true;
+                break;
+            case SDLK_c:
+                chip8.keys[0xE] = true;
+                break;
+            case SDLK_v:
+                chip8.keys[0xF] = true;
                 break;
             }
+            break;
+        case SDL_KEYUP:
+            switch (ev.key.keysym.sym) {
+            case SDLK_1:
+                chip8.keys[0] = false;
+                break;
+            case SDLK_2:
+                chip8.keys[1] = false;
+                break;
+            case SDLK_3:
+                chip8.keys[2] = false;
+                break;
+            case SDLK_4:
+                chip8.keys[3] = false;
+                break;
+            case SDLK_q:
+                chip8.keys[4] = false;
+                break;
+            case SDLK_w:
+                chip8.keys[5] = false;
+                break;
+            case SDLK_e:
+                chip8.keys[6] = false;
+                break;
+            case SDLK_r:
+                chip8.keys[7] = false;
+                break;
+            case SDLK_a:
+                chip8.keys[8] = false;
+                break;
+            case SDLK_s:
+                chip8.keys[9] = false;
+                break;
+            case SDLK_d:
+                chip8.keys[0xA] = false;
+                break;
+            case SDLK_f:
+                chip8.keys[0xB] = false;
+                break;
+            case SDLK_z:
+                chip8.keys[0xC] = false;
+                break;
+            case SDLK_x:
+                chip8.keys[0xD] = false;
+                break;
+            case SDLK_c:
+                chip8.keys[0xE] = false;
+                break;
+            case SDLK_v:
+                chip8.keys[0xF] = false;
+                break;
+            }
+            break;
         }
     }
 }
 
-void emulate(Chip8 &chip8, SDL_Window *window) {
-    constexpr uint32_t ON_COLOR = 0xFFFFFFFF;
-    constexpr uint32_t OFF_COLOR = 0x000000FF;
+void emulate(Chip8 &chip8, SDL_Window *window, Mix_Music *beep) {
     const uint8_t first_byte = chip8.memory[chip8.PC];
     const uint8_t second_byte = chip8.memory[chip8.PC + 1];
     const uint16_t opcode = first_byte << 8 | second_byte;
 
-    printf("Executing %02X%02X \n", first_byte, second_byte);
+    if (chip8.delay_timer > 0) {
+        // decrement at 60hz
+        chip8.delay_timer--;
+    }
+
+    if (chip8.sound_timer > 0) {
+        // decrement at 60hz
+        // play sound
+        Mix_PlayMusic(beep, 1);
+        chip8.sound_timer--;
+    }
 
     switch (first_byte >> 4) {
     case 0x0:
@@ -179,12 +285,13 @@ void emulate(Chip8 &chip8, SDL_Window *window) {
             for (int x = 0; x < 8; x++) {
                 if (pixel & (0x80 >> x)) {
                     // check if we're turning off the pixel and set VF.
-                    int index = (chip8.V[first_byte & 0x0F] + x) % 64 + ((chip8.V[((second_byte & 0xF0) >> 4)] + y) % 32) * 64;
+                    int index = ((chip8.V[first_byte & 0x0F] + x) % 64) + ((chip8.V[((second_byte & 0xF0) >> 4)] + y) % 32) * 64;
                     if (chip8.pixels[index] == ON_COLOR) {
                         chip8.V[0xF] = 1;
                         chip8.pixels[index] = OFF_COLOR;
+                    } else {
+                        chip8.pixels[index] = ON_COLOR;
                     }
-                    chip8.pixels[index] = ON_COLOR;
                 }
             }
         }
@@ -193,23 +300,34 @@ void emulate(Chip8 &chip8, SDL_Window *window) {
         break;
     }
     case 0xE:
-        // TODO:
+        switch (second_byte) {
+        case 0x9E:
+            if (chip8.keys[chip8.V[first_byte & 0x0F]]) {
+                chip8.PC += 2;
+            }
+            break;
+        case 0xA1:
+            if (!chip8.keys[chip8.V[first_byte & 0x0F]]) {
+                chip8.PC += 2;
+            }
+            break;
+        }
         chip8.PC += 2;
         break;
     case 0xF:
         auto X = (opcode & 0x0F00) >> 8;
         switch (second_byte) {
         case 0x07:
-            // TODO:
+            chip8.V[X] = chip8.delay_timer;
             break;
         case 0x0A:
-            // TODO:
+            // TODO: wait for keypress and then store it somewhere
             break;
         case 0x15:
-            // TODO:
+            chip8.delay_timer = chip8.V[X];
             break;
         case 0x18:
-            // TODO:
+            chip8.sound_timer = chip8.V[X];
             break;
         case 0x1E:
             chip8.I = chip8.I + chip8.V[X];
@@ -242,14 +360,14 @@ void emulate(Chip8 &chip8, SDL_Window *window) {
 
 int main(int argc, char **argv) {
     if (argc < 2) {
-        std::cout << "No file was provided as input, quitting program" << std::endl;
+        printf("No file was provided as input, quitting program\n");
         return 0;
     }
 
     std::ifstream file(argv[1], std::ios::binary | std::ios::ate);
 
     if (!file) {
-        std::cout << "Invalid file was provided, quitting program" << std::endl;
+        printf("Invalid file was provided, quitting program\n");
         return 0;
     }
 
@@ -263,15 +381,28 @@ int main(int argc, char **argv) {
     Chip8 chip8;
 
     memcpy(chip8.memory, font, sizeof(font));
-    memset(chip8.pixels, 0xFF000000, sizeof(chip8.pixels));
+    memset(chip8.pixels, 0, sizeof(chip8.pixels));
     memset(chip8.stack, 0, sizeof(chip8.stack));
     memset(chip8.V, 0, sizeof(chip8.V));
 
     if (SDL_Init(SDL_INIT_VIDEO) < 0) {
-        std::cout << "Video init failed";
+        printf("Video init failed\n");
         return -1;
     }
-    
+
+    if (SDL_Init(SDL_INIT_AUDIO) < 0) {
+        printf("Audio init failed\n");
+        return -1;
+    }
+
+    if (MIX_INIT_MP3 != Mix_Init(MIX_INIT_MP3)) {
+        printf("Could not init audio mixer\n");
+        return -1;
+    }
+
+    Mix_OpenAudio(22050, AUDIO_S16SYS, 2, 640);
+    Mix_Music *beep = Mix_LoadMUS("./beep.mp3");
+
     srand(time(0));
 
     std::streamsize size = file.tellg();
@@ -281,26 +412,27 @@ int main(int argc, char **argv) {
 
     window = SDL_CreateWindow(title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 640, 320, SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, 0, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_BGRA8888, SDL_TEXTUREACCESS_STATIC, 64, 32);
+    texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_STATIC, 64, 32);
 
     bool running = true;
 
     while (running) {
-        emulate(chip8, window);
+        emulate(chip8, window, beep);
 
         if (chip8.draw) {
-            SDL_UpdateTexture(texture, 0, chip8.pixels, 64 * sizeof(uint32_t));
-            SDL_RenderCopy(renderer, texture, 0, 0);
+            SDL_UpdateTexture(texture, nullptr, chip8.pixels, 64 * sizeof(uint32_t));
+            SDL_RenderCopy(renderer, texture, nullptr, nullptr);
             SDL_RenderPresent(renderer);
 
             chip8.draw = false;
         }
-        poll_events(window, &running);
+        poll_events(window, &running, chip8);
     }
 
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    Mix_FreeMusic(beep);
     SDL_Quit();
 
     return 0;

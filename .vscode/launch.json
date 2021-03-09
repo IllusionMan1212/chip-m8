@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/chip8debug",
-            "args": ["IBM Logo.ch8"],
+            "args": ["./roms/Pong.ch8"],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
             "environment": [],
